@@ -641,13 +641,13 @@ class SolrSearchQuery(BaseSearchQuery):
             search_kwargs['date_facets'] = self.date_facets
 
         if self.facet_mincount:
-            kwargs['facet_mincount'] = self.facet_mincount
+            search_kwargs['facet_mincount'] = self.facet_mincount
 
         if self.facet_limit:
-            kwargs['facet_limit'] = self.facet_limit
+            search_kwargs['facet_limit'] = self.facet_limit
 
         if self.facet_prefix:
-            kwargs['facet_prefix'] = self.facet_prefix
+            search_kwargs['facet_prefix'] = self.facet_prefix
 
         if self.distance_point:
             search_kwargs['distance_point'] = self.distance_point
