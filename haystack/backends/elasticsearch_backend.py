@@ -333,7 +333,7 @@ class ElasticsearchSearchBackend(BaseSearchBackend):
                 facet_options = {
                     'terms': {
                         'field': facet_fieldname,
-                        'size': 100,
+                        'size': 10000,
                     },
                 }
                 # Special cases for options applied at the facet level (not the terms level).
