@@ -56,7 +56,7 @@ def worker(bits):
     backend = haystack_connections[using].get_backend()
 
     if func == 'do_update':
-        qs = index.build_queryset(start_date=start_date, end_date=end_date)
+        qs = index.build_queryset(using=using, start_date=start_date, end_date=end_date)
         do_update(backend, index, qs, start, end, total, verbosity=verbosity)
     elif bits[0] == 'do_remove':
         do_remove(backend, index, model, pks_seen, start, upper_bound, verbosity=verbosity)
