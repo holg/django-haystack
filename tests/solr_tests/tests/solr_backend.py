@@ -12,7 +12,7 @@ from django.conf import settings
 from django.test import TestCase
 from haystack import connections, reset_search_queries
 from haystack import indexes
-from haystack.inputs import AutoQuery, AltParser
+from haystack.inputs import AutoQuery, AltParser, Raw
 from haystack.models import SearchResult
 from haystack.query import SearchQuerySet, RelatedSearchQuerySet, SQ
 from haystack.utils.loading import UnifiedIndex
@@ -160,6 +160,16 @@ class SolrSpatialSearchIndex(indexes.SearchIndex, indexes.Indexable):
 
     def get_model(self):
         return ASixthMockModel
+
+
+class SolrQuotingMockSearchIndex(indexes.SearchIndex, indexes.Indexable):
+    text = indexes.CharField(document=True, use_template=True)
+
+    def get_model(self):
+        return MockModel
+
+    def prepare_text(self, obj):
+        return u"""Don't panic but %s has been iñtërnâtiônàlizéð""" % obj.author
 
 
 class SolrSearchBackendTestCase(TestCase):
@@ -320,8 +330,8 @@ class SolrSearchBackendTestCase(TestCase):
         self.assertEqual(self.sb.search('indax')['spelling_suggestion'], 'index')
         self.assertEqual(self.sb.search('Indx', spelling_query='indexy')['spelling_suggestion'], 'index')
 
-        self.assertEqual(self.sb.search('', facets=['name']), {'hits': 0, 'results': []})
-        results = self.sb.search('Index', facets=['name'])
+        self.assertEqual(self.sb.search('', facets={'name': {}}), {'hits': 0, 'results': []})
+        results = self.sb.search('Index', facets={'name': {}})
         self.assertEqual(results['hits'], 3)
         self.assertEqual(results['facets']['fields']['name'], [('daniel1', 1), ('daniel2', 1), ('daniel3', 1)])
 
@@ -335,6 +345,11 @@ class SolrSearchBackendTestCase(TestCase):
         results = self.sb.search('Index', query_facets=[('name', '[* TO e]')])
         self.assertEqual(results['hits'], 3)
         self.assertEqual(results['facets']['queries'], {'name:[* TO e]': 3})
+
+        self.assertEqual(self.sb.search('', stats={}), {'hits':0,'results':[]})
+        results = self.sb.search('*:*', stats={'name':['name']})
+        self.assertEqual(results['hits'], 3)
+        self.assertEqual(results['stats']['name']['count'], 3)
 
         self.assertEqual(self.sb.search('', narrow_queries=set(['name:daniel1'])), {'hits': 0, 'results': []})
         results = self.sb.search('Index', narrow_queries=set(['name:daniel1']))
@@ -362,7 +377,7 @@ class SolrSearchBackendTestCase(TestCase):
     def test_altparser_query(self):
         self.sb.update(self.smmi, self.sample_objs)
 
-        results = self.sb.search(AltParser('dismax', 'daniel1', qf='name', mm=1).prepare(self.sq))
+        results = self.sb.search(AltParser('dismax', "daniel1", qf='name', mm=1).prepare(self.sq))
         self.assertEqual(results['hits'], 1)
 
         # This should produce exactly the same result since all we have are mockmodel instances but we simply
@@ -386,6 +401,27 @@ class SolrSearchBackendTestCase(TestCase):
         results = new_q.get_results()
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0].id, 'core.mockmodel.1')
+
+    def test_raw_query(self):
+        self.sb.update(self.smmi, self.sample_objs)
+
+        # Ensure that the raw bits have proper parenthesis.
+        new_q = self.sq._clone()
+        new_q._reset()
+        new_q.add_filter(SQ(content=Raw("{!dismax qf='title^2 text' mm=1}my query")))
+
+        results = new_q.get_results()
+        self.assertEqual(len(results), 0)
+
+    def test_altparser_quoting(self):
+        test_objs = [
+            MockModel(id=1, author="Foo d'Bar", pub_date=datetime.date.today()),
+            MockModel(id=2, author="Baaz Quuz", pub_date=datetime.date.today()),
+        ]
+        self.sb.update(SolrQuotingMockSearchIndex(), test_objs)
+
+        results = self.sb.search(AltParser('dismax', "+don't +quuz", qf='text').prepare(self.sq))
+        self.assertEqual(results['hits'], 1)
 
     def test_more_like_this(self):
         self.sb.update(self.smmi, self.sample_objs)
@@ -824,6 +860,11 @@ class LiveSolrSearchQuerySetTestCase(TestCase):
         self.assertTrue(isinstance(sqs, SearchQuerySet))
         self.assertEqual(repr(sqs.query.query_filter), '<SQ: AND content__contains="pants:rule">')
         self.assertEqual(sqs.query.build_query(), u'("pants\\:rule")')
+        self.assertEqual(len(sqs), 0)
+
+        sqs = self.sqs.auto_query('Canon+PowerShot+ELPH+(Black)')
+        self.assertEqual(sqs.query.build_query(), u'Canon\\+PowerShot\\+ELPH\\+\\(Black\\)')
+        sqs = sqs.filter(tags__in=['cameras', 'electronics'])
         self.assertEqual(len(sqs), 0)
 
     # Regressions
